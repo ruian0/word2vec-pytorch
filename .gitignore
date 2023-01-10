@@ -2,3 +2,9 @@ data/
 .data/
 .ipynb_checkpoints/
 __pycache__/
+
+*.ipynb
+.vscode/
+notebooks/
+utils/gpt_utils/gpt3_key.py
+*html

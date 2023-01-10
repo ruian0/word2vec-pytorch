@@ -113,6 +113,10 @@ class Trainer:
         model_path = os.path.join(self.model_dir, "model.pt")
         torch.save(self.model, model_path)
 
+    def save_model_dict(self):
+        model_path = os.path.join(self.model_dir, "model.pth")
+        torch.save(self.model.state_dict(), model_path)
+
     def save_loss(self):
         """Save train/val loss as json file to `self.model_dir` directory"""
         loss_path = os.path.join(self.model_dir, "loss.json")

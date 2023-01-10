@@ -3,6 +3,7 @@ import yaml
 import os
 import torch
 import torch.nn as nn
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 from utils.dataloader import get_dataloader_and_vocab
 from utils.trainer import Trainer
@@ -16,7 +17,10 @@ from utils.helper import (
 
 
 def train(config):
-    os.makedirs(config["model_dir"])
+
+    path = config["model_dir"]
+    if not os.path.exists(path):
+        os.makedirs(path)
     
     train_dataloader, vocab = get_dataloader_and_vocab(
         model_name=config["model_name"],
@@ -43,6 +47,9 @@ def train(config):
 
     model_class = get_model_class(config["model_name"])
     model = model_class(vocab_size=vocab_size)
+    
+    print("model is, ", type(model), model)
+    
     criterion = nn.CrossEntropyLoss()
 
     optimizer_class = get_optimizer_class(config["optimizer"])
@@ -71,6 +78,7 @@ def train(config):
     print("Training finished.")
 
     trainer.save_model()
+    trainer.save_model_dict()
     trainer.save_loss()
     save_vocab(vocab, config["model_dir"])
     save_config(config, config["model_dir"])

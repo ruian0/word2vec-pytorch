@@ -14,7 +14,6 @@ def get_model_class(model_name: str):
         return SkipGram_Model
     else:
         raise ValueError("Choose model_name from: cbow, skipgram")
-        return
 
 
 def get_optimizer_class(name: str):

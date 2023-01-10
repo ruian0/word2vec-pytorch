@@ -13,4 +13,4 @@ train_steps:
 val_steps: 
 
 checkpoint_frequency: 
-model_dir: weights/cbow_WikiText2
+model_dir: /home/ruian/mnt/ruian/gpt3/w2v_torch/weights/cbow_WikiText2
