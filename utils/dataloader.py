@@ -1,33 +1,86 @@
-import torch
+import json
+import sys
 from functools import partial
-from torch.utils.data import DataLoader
+
+import torch
+from torch.utils.data import DataLoader, IterableDataset
 from torchtext.data import to_map_style_dataset
 from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import build_vocab_from_iterator
 from torchtext.datasets import WikiText2, WikiText103
-
-from utils.constants import (
-    CBOW_N_WORDS,
-    SKIPGRAM_N_WORDS,
-    MIN_WORD_FREQUENCY,
-    MAX_SEQUENCE_LENGTH,
-)
+from torchtext.vocab import build_vocab_from_iterator
+from transformers import GPT2Tokenizer
+from collections import OrderedDict
+from torchtext.vocab import vocab as pytorch_vocab
 
 
-def get_english_tokenizer():
+sys.path.insert(0, '/home/ruian/sw/ranking-engine/')
+from src.models.feature_models.skill_model.skill_w2v_model import \
+    SkillW2vTokenizer
+    
+
+from utils.constants import (CBOW_N_WORDS, MAX_SEQUENCE_LENGTH,
+                             MIN_WORD_FREQUENCY, SKIPGRAM_N_WORDS)
+
+
+def get_english_tokenizer(tokenizer_type):
     """
     Documentation:
     https://pytorch.org/text/stable/_modules/torchtext/data/utils.html#get_tokenizer
     """
-    tokenizer = get_tokenizer("basic_english", language="en")
+    if tokenizer_type == 'gpt2':
+        tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    elif tokenizer_type == 'english':
+        tokenizer = get_tokenizer("basic_english", language="en")
+    else:
+        tokenizer = SkillW2vTokenizer().tokenize
+    
     return tokenizer
 
 
-def get_data_iterator(ds_name, ds_type, data_dir):
+class ProfileIterableDataset(IterableDataset):
+    def __init__(self, filename):
+
+        #Store the filename in object's memory
+        self.tokenizer = SkillW2vTokenizer().tokenize
+        self.text_pipeline = lambda x: SkillW2vTokenizer().convert_tokens_to_ids(self.tokenizer(x))
+        self.filename = filename
+        
+        #And that's it, we no longer need to store the contents in the memory
+
+    def line_mapper(self, line):
+        
+        #Splits the line into text and label and applies preprocessing to the text
+        profile = json.loads(line)
+        handson = profile[list(profile.keys())[0]]['handson']
+        handson_skill = [each['handson_skill'] for each in handson]
+        skill_sentence = " ".join(handson_skill)
+
+        return skill_sentence
+
+    def __iter__(self):
+        #Create an iterator
+        file_itr = open(self.filename)
+        #Map each element using the line_mapper
+        mapped_itr = map(self.line_mapper, file_itr)
+        
+        return mapped_itr
+
+def get_data_iterator(ds_name, ds_type, data_dir, base):
     if ds_name == "WikiText2":
         data_iter = WikiText2(root=data_dir, split=(ds_type))
     elif ds_name == "WikiText103":
         data_iter = WikiText103(root=data_dir, split=(ds_type))
+    elif ds_name == "profiles":
+        if  ds_type == 'train':
+            if base == "test":
+                return ProfileIterableDataset('/home/ruian/mnt/ruian/profiles/jd-profile-small/profiles_gpt3_train_small.json')
+            elif base == "prod":
+                return ProfileIterableDataset('/home/ruian/mnt/ruian/profiles/jd-profile-small/profiles_gpt3_train.json')
+        if ds_type == "valid":
+            if base == "test":
+                return ProfileIterableDataset('/home/ruian/mnt/ruian/profiles/jd-profile-small/profiles_gpt3_eval_small.json')
+            elif base == "prod":
+                return ProfileIterableDataset('/home/ruian/mnt/ruian/profiles/jd-profile-small/profiles_gpt3_eval.json')
     else:
         raise ValueError("Choose dataset from: WikiText2, WikiText103")
     data_iter = to_map_style_dataset(data_iter)
@@ -121,16 +174,31 @@ def collate_skipgram(batch, text_pipeline):
 
 
 def get_dataloader_and_vocab(
-    model_name, ds_name, ds_type, data_dir, batch_size, shuffle, vocab=None
+    model_name, ds_name, ds_type, data_dir, batch_size, shuffle, vocab=None, tokenizer_type='english', base='test'
 ):
 
-    data_iter = get_data_iterator(ds_name, ds_type, data_dir)
-    tokenizer = get_english_tokenizer()
+    data_iter = get_data_iterator(ds_name, ds_type, data_dir, base)
+    tokenizer = get_english_tokenizer(tokenizer_type)
+
+    if hasattr(tokenizer, 'name_or_path'):
+        if tokenizer.name_or_path == 'gpt2':
+        # gpt2 
+            text_pipeline = lambda x: tokenizer(x).get('input_ids', [])
+            vocab = tokenizer.get_vocab()
+    elif tokenizer_type == "ranking_engine":
+        text_pipeline = lambda x: SkillW2vTokenizer().convert_tokens_to_ids(tokenizer(x))
+        skills = SkillW2vTokenizer()._w2v.key_to_index
+
+        skills_cnt = {each:1 for each in skills.keys()}
+        ordered_dict = OrderedDict(skills_cnt)
+        vocab =  pytorch_vocab(ordered_dict)
+        
+        print("loading SkillW2vTokenizer tokenizer from ranking engine", type(vocab))
+    else:
+        text_pipeline = lambda x: vocab(tokenizer(x))
 
     if not vocab:
         vocab = build_vocab(data_iter, tokenizer)
-        
-    text_pipeline = lambda x: vocab(tokenizer(x))
 
     if model_name == "cbow":
         collate_fn = collate_cbow

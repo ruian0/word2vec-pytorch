@@ -1,16 +1,29 @@
+base: test
+# base: prod
+
 model_name: cbow
 
-dataset: WikiText2
-data_dir: data/
-train_batch_size: 96
-val_batch_size: 96
-shuffle: True
+# dataset: WikiText2
+dataset: profiles
+
+data_dir: /mnt/ruian/gpt3/w2v_torch/train_data
+train_batch_size: 256 
+val_batch_size: 256
+shuffle: False
 
 optimizer: Adam
-learning_rate: 0.025
+# learning_rate: 0.025
+learning_rate: 0.001
 epochs: 5
 train_steps: 
 val_steps: 
 
 checkpoint_frequency: 
-model_dir: /home/ruian/mnt/ruian/gpt3/w2v_torch/weights/cbow_WikiText2
+model_dir: /mnt/ruian/gpt3/w2v_torch/weights/cbow_WikiText2-onlyFC
+
+# tokenizer_type: gpt2
+# tokenizer_type: english
+tokenizer_type: ranking_engine
+
+# device: cpu
+device: gpu

@@ -1,6 +1,7 @@
 import argparse
 import yaml
 import os
+import time
 import torch
 import torch.nn as nn
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -14,11 +15,25 @@ from utils.helper import (
     save_config,
     save_vocab,
 )
+from torch.utils.tensorboard import SummaryWriter
 
 
 def train(config):
 
-    path = config["model_dir"]
+    timestr = time.strftime("%Y%m%d-%H%M%S")
+
+    base = config.get("base", "")
+    epochs = config.get("epochs", 5)
+    lr = config["learning_rate"]
+    # path = config['model_dir']
+    
+    if base == "test":
+        path = f"{config['model_dir']}-TEST-epochs-{epochs}-{lr}-{timestr}"
+    elif base == "prod":
+        path = f"{config['model_dir']}-PROD-epochs-{epochs}-{lr}-{timestr}"
+                    
+    writer = SummaryWriter(path)
+
     if not os.path.exists(path):
         os.makedirs(path)
     
@@ -30,8 +45,10 @@ def train(config):
         batch_size=config["train_batch_size"],
         shuffle=config["shuffle"],
         vocab=None,
+        tokenizer_type=config['tokenizer_type'], 
+        base=base
     )
-
+    
     val_dataloader, _ = get_dataloader_and_vocab(
         model_name=config["model_name"],
         ds_name=config["dataset"],
@@ -40,14 +57,28 @@ def train(config):
         batch_size=config["val_batch_size"],
         shuffle=config["shuffle"],
         vocab=vocab,
+        tokenizer_type=config['tokenizer_type'],
+        base=base
     )
-
-    vocab_size = len(vocab.get_stoi())
+    
+    cnt = 0
+    for x, y in val_dataloader:
+        cnt += 1
+        
+    print("train_loader has ", cnt)
+    
+    if isinstance(vocab, dict): 
+        vocab_size = len(vocab)
+    else:
+        vocab_size = len(vocab.get_stoi())
     print(f"Vocabulary size: {vocab_size}")
 
     model_class = get_model_class(config["model_name"])
-    model = model_class(vocab_size=vocab_size)
-    
+    if config['tokenizer_type'] == 'english':
+        model = model_class(vocab_size=vocab_size)
+    else:
+        model = model_class(vocab=vocab)
+        
     print("model is, ", type(model), model)
     
     criterion = nn.CrossEntropyLoss()
@@ -56,7 +87,11 @@ def train(config):
     optimizer = optimizer_class(model.parameters(), lr=config["learning_rate"])
     lr_scheduler = get_lr_scheduler(optimizer, config["epochs"], verbose=True)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = config['device']
+    if device == 'gpu':
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device("cpu")
 
     trainer = Trainer(
         model=model,
@@ -70,8 +105,9 @@ def train(config):
         checkpoint_frequency=config["checkpoint_frequency"],
         lr_scheduler=lr_scheduler,
         device=device,
-        model_dir=config["model_dir"],
+        model_dir=path,
         model_name=config["model_name"],
+        writer=writer
     )
 
     trainer.train()
@@ -80,15 +116,17 @@ def train(config):
     trainer.save_model()
     trainer.save_model_dict()
     trainer.save_loss()
-    save_vocab(vocab, config["model_dir"])
-    save_config(config, config["model_dir"])
-    print("Model artifacts saved to folder:", config["model_dir"])
+    save_vocab(vocab, path)
+    save_config(config, path)
+    print("Model artifacts saved to folder:", path)
+    writer.close()
     
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', type=str, required=True, help='path to yaml config')
     args = parser.parse_args()
+        
     
     with open(args.config, 'r') as stream:
         config = yaml.safe_load(stream)
